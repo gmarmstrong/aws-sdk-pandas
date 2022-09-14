@@ -25,55 +25,6 @@ if config.distributed:
 _logger: logging.Logger = logging.getLogger(__name__)
 
 
-class _ReadingStrategy(abc.ABC):
-    """
-    Reading strategy for a file format.
-
-    Contains the parsing function needed for loading the file, as well as the
-    Ray datasource if needed.
-    """
-
-    @property
-    @abc.abstractmethod
-    def pandas_read_function(self) -> Callable[..., pd.DataFrame]:
-        """Return the parser function from Pandas, such as e.g. pd.read_csv."""
-
-    @property
-    @abc.abstractmethod
-    def ray_datasource(self) -> Any:
-        """Return the Ray custom data source for this file format."""
-
-
-class _CSVReadingStrategy(_ReadingStrategy):
-    @property
-    def pandas_read_function(self) -> Callable[..., pd.DataFrame]:
-        return pd.read_csv  # type: ignore
-
-    @property
-    def ray_datasource(self) -> Any:
-        return PandasTextDatasource(pd.read_csv, "csv")
-
-
-class _FWFReadingStrategy(_ReadingStrategy):
-    @property
-    def pandas_read_function(self) -> Callable[..., pd.DataFrame]:
-        return pd.read_fwf  # type: ignore
-
-    @property
-    def ray_datasource(self) -> Any:
-        return PandasTextDatasource(pd.read_fwf, "fwf")
-
-
-class _JSONReadingStrategy(_ReadingStrategy):
-    @property
-    def pandas_read_function(self) -> Callable[..., pd.DataFrame]:
-        return pd.read_json  # type: ignore
-
-    @property
-    def ray_datasource(self) -> Any:
-        return PandasJSONDatasource()
-
-
 def _get_version_id_for(version_id: Optional[Union[str, Dict[str, str]]], path: str) -> Optional[str]:
     if isinstance(version_id, dict):
         return version_id.get(path, None)
@@ -82,7 +33,8 @@ def _get_version_id_for(version_id: Optional[Union[str, Dict[str, str]]], path: 
 
 
 def _read_text(
-    reading_strategy: _ReadingStrategy,
+    parser_func: Callable[..., pd.DataFrame],
+    datasource: Any,
     path: Union[str, List[str]],
     path_suffix: Union[str, List[str], None],
     path_ignore_suffix: Union[str, List[str], None],
@@ -123,7 +75,7 @@ def _read_text(
     _logger.debug("paths:\n%s", paths)
 
     args: Dict[str, Any] = {
-        "parser_func": reading_strategy.pandas_read_function,
+        "parser_func": parser_func,
         "boto3_session": session,
         "dataset": dataset,
         "path_root": path_root,
@@ -149,7 +101,7 @@ def _read_text(
 
     if config.distributed:
         ray_dataset = read_datasource(
-            datasource=reading_strategy.ray_datasource,
+            datasource=datasource,
             parallelism=parallelism,
             paths=paths,
             path_root=path_root,
@@ -167,7 +119,7 @@ def _read_text(
         session,
         paths,
         [version_id_dict[path] for path in paths],
-        itertools.repeat(reading_strategy.pandas_read_function),
+        itertools.repeat(parser_func),
         itertools.repeat(path_root),
         itertools.repeat(pandas_kwargs),
         itertools.repeat(s3_additional_kwargs),
@@ -310,7 +262,8 @@ def read_csv(
         )
     ignore_index: bool = "index_col" not in pandas_kwargs
     return _read_text(
-        reading_strategy=_CSVReadingStrategy(),
+        parser_func=pd.read_csv,
+        datasource=PandasTextDatasource(pd.read_csv, "csv"),
         path=path,
         path_suffix=path_suffix,
         path_ignore_suffix=path_ignore_suffix,
@@ -462,7 +415,8 @@ def read_fwf(
             "e.g. wr.s3.read_fwf(path, widths=[1, 3], names=['c0', 'c1'])"
         )
     return _read_text(
-        reading_strategy=_FWFReadingStrategy(),
+        parser_func=pd.read_fwf,
+        datasource=PandasTextDatasource(pd.read_fwf, "fwf"),
         path=path,
         path_suffix=path_suffix,
         path_ignore_suffix=path_ignore_suffix,
@@ -623,7 +577,8 @@ def read_json(
     pandas_kwargs["orient"] = orient
     ignore_index: bool = orient not in ("split", "index", "columns")
     return _read_text(
-        reading_strategy=_JSONReadingStrategy(),
+        parser_func=pd.read_json,
+        datasource=PandasJSONDatasource(),
         path=path,
         path_suffix=path_suffix,
         path_ignore_suffix=path_ignore_suffix,
