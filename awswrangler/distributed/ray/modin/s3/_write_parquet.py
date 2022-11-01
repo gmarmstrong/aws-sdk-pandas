@@ -47,18 +47,18 @@ def _to_parquet_distributed(  # pylint: disable=unused-argument
             path,
         )
 
-        if index and df.index.name:
-            raise exceptions.InvalidArgumentCombination(
-                "Cannot write a named index when repartitioning to a single file"
-            )
+        # if index and df.index.name:
+        #     raise exceptions.InvalidArgumentCombination(
+        #         "Cannot write a named index when repartitioning to a single file"
+        #     )
 
         ds = ds.repartition(1)
     # Repartition by max_rows_by_file
     elif max_rows_by_file and (max_rows_by_file > 0):
-        if index:
-            raise exceptions.InvalidArgumentCombination(
-                "Cannot write indexed file when `max_rows_by_file` is specified"
-            )
+        # if index:
+        #     raise exceptions.InvalidArgumentCombination(
+        #         "Cannot write indexed file when `max_rows_by_file` is specified"
+        #     )
 
         ds = ds.repartition(math.ceil(ds.count() / max_rows_by_file))
     datasource = ArrowParquetDatasource()
@@ -75,6 +75,6 @@ def _to_parquet_distributed(  # pylint: disable=unused-argument
         dtype=dtype,
         compression=compression,
         pyarrow_additional_kwargs=pyarrow_additional_kwargs,
-        schema=schema,
+        # schema=schema, # TODO: add workaround for index column missing in the schema
     )
     return datasource.get_write_paths()
